@@ -1,100 +1,104 @@
-from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
-import math, time, os, pandas as pd
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import time, random
+import math
+import os
+from bs4 import BeautifulSoup
+import time, urllib.request
 
-options = Options()
-options.add_argument('--window-size=974,1047')
-options.add_argument('--window-position=953,0')
-options.add_experimental_option("detach", True)
+opt = Options()
+opt.add_experimental_option('detach',True)
+# opt.add_argument("--headless=new")
+opt.add_argument("--start-maximized")
 
-search = input('검색어:')
-cnt = int(input('스크래핑 할 건수는 몇건입니까?: '))
-page_cnt = math.ceil(cnt / 10)  # 크롤링 할 전체 페이지 수 
+search = input('검색어 입력')
+input_cnt = int(input('몇개의 데이터를 가져올지 입력'))
+page_cnt = math.ceil(input_cnt / 10)
+cnt = 0
 
-now = time.localtime()
-date_format = '%04d%02d%02d'%(now.tm_year, now.tm_mon, now.tm_mday)
-f_dir = f'{os.getcwd()}\\{search}여행기사_{cnt}건_{date_format}'
-os.makedirs(f_dir)
+url = 'https://korean.visitkorea.or.kr/search/search_list.do?keyword='+search
 
-URL = 'https://korean.visitkorea.or.kr/search/search_list.do?keyword='+search
-driver = webdriver.Chrome(options=options)
-driver.get(URL)
-time.sleep(2)
-# 여행기사 더보기 클릭
-driver.find_element(By.CSS_SELECTOR, "#s_recommend > .more_view > a").click()
-time.sleep(2)
+driver = webdriver.Chrome(options=opt)
+driver.get(url)
+time.sleep(random.randint(2,3))
 
-title_list = []
-contents_list = []
-img_url_list = []
+more_view = driver.find_element(By.CSS_SELECTOR, '#s_attraction > .more_view > a')
+driver.execute_script("arguments[0].scrollIntoView(false);", more_view)
+more_view.click()
 
-def page_work():
-    result = driver.find_elements(By.CSS_SELECTOR,'#search_result .tit>a')
-    global contents_no, cnt
-    global title_list, contents_list, img_url_list
-    
-    for item in result:
-        contents_no += 1
+wait = time.sleep(random.randint(2,3))
+# wait = driver.implicitly_wait(random.randint(2,3))
+ex_wait = WebDriverWait(driver, 10)
+
+for i in range(1, page_cnt + 1):
+    print('='*10,f'{i} 페이지','='*10)
+    # time.sleep(random.randint(2,3))
+    ex_wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="search_result"]/ul/li[*]/div[1]/div[1]/a')))
+    a = driver.find_elements(By.XPATH, '//*[@id="search_result"]/ul/li[*]/div[1]/div[1]/a')
+ 
+    for x in range(len(a)):
+        if cnt == input_cnt:
+            break
+        else:
+            cnt += 1
+        ex_wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="search_result"]/ul/li[*]/div[1]/div[1]/a')))
+        a = driver.find_elements(By.XPATH, '//*[@id="search_result"]/ul/li[*]/div[1]/div[1]/a')
+        # time.sleep(random.randint(2,3))
+
+        driver.execute_script("arguments[0].scrollIntoView(false);", a[x])
+        print('-'*5,'제목','-'*5)
         
-        if contents_no <= cnt :    
-            print(f'[콘텐츠 {contents_no}]')  
-            item.send_keys(Keys.ENTER) # .click()은 에러 잘남
+        title = a[x].text
+        print(title)
+        
+        a[x].click()
+        
+        time.sleep(random.randint(2,3))
 
-            time.sleep(2)
-            
-            # 이미지 추출을 위해 미리 스크롤
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight)")
-            
-            html = driver.page_source
-            html_dom = BeautifulSoup(html, 'lxml')
+        ex_wait.until(EC.presence_of_all_elements_located((By.XPATH, '//*[@id="galleryGo"]/div[2]/div[1]/div[4]')))
+        next_btn = driver.find_element(By.XPATH, '//*[@id="galleryGo"]/div[2]/div[1]/div[4]')
 
-            title = html_dom.find(id='topTitle')
-            title_list.append(title.text)
-            print(title.text)
-            
-            img_tag_list = html_dom.select('.img_typeBox img')
-            img_url_list = [item['src'] for item in img_tag_list]
+        try:
+            while next_btn.is_displayed() == True:
+                next_btn.click()
 
-            contents = driver.find_elements(By.CLASS_NAME, 'txt_p')
-            contents_merge = ' '.join([item.text for item in contents])        
-            contents_list.append(contents_merge)           
-            
-            driver.back()
-            time.sleep(2)     
+        except Exception as e:
+            print("next_btn 에러 : ", e)
+        
+        time.sleep(random.randint(2,3))
+        contents = ex_wait.until(EC.element_to_be_clickable((By.CLASS_NAME, 'inr > p')))
+        print('-'*5,'내용','-'*5)
+        print(contents.text)
 
+        f_dir = f'./selenium_test/{title}'
+        if not os.path.exists(f_dir):
+            os.makedirs(f_dir)
 
-def file_export():
-    
-    DF = pd.DataFrame({"제목":title_list, "내용":contents_list})
-    filename = f'{search}여행기사_{cnt}건_{date_format}.xlsx'
-    DF.to_excel(f_dir+'\\'+filename)
-    print(f'====== {page_no} 페이지 {filename} 파일 저장 완료 ======')
-    
-    
-    no = 0
-    for src in img_url_list:
-        # 다운로드  (주소, 파일이름)
-        urllib.request.urlretrieve(src, f'{f_dir}\\{page_no}_{no}.jpg')
-        no += 1
-    print(f'====== {page_no} 페이지 {f_dir} 디렉토리 이미지 저장 완료 ======')
+        html_src = driver.page_source
+        html_dom = BeautifulSoup(html_src, 'lxml')
+        mylist = html_dom.select('.swiper-slide img.swiper-lazy')
+        img_list = [item for item in mylist if 'src' in item.attrs]
+        file_num = 0
+        for img in img_list:
+            img_url = img['src']
+            img_url = img_url.replace('&amp;', '&')
+            save_path = os.path.join(f_dir, f'{file_num}.jpg')
+            urllib.request.urlretrieve(img_url, save_path)
+            print(f'-----이미지 저장 완료 {save_path}-----')
+            file_num += 1
 
-
-contents_no = 0
-today = time.localtime()
-print('스크래핑 프로그램 실행')
-
-for page_no in range(1, page_cnt+1):    
-    print(f'====== {page_no} 페이지 스크래핑 시작 ======')
-    page_work()
-    print(f'====== {page_no} 페이지 스크래핑 작업중 ======')
-    file_export()
-    print(f'====== {page_no} 페이지 스크래핑 완료 ======')
-    if page_no < page_cnt:
-        driver.find_element(By.XPATH, f'/html/body/div[3]/div/div[1]/div[15]/a[{page_no+1}]').click()
-        time.sleep(2)
-                   
-print('스크래핑 프로그램 종료')
-driver.close()
+        driver.back()
+        
+        time.sleep(random.randint(2,3))
+    if cnt >= input_cnt:
+        break
+    else:
+        time.sleep(random.randint(2,3))
+        page_num = ex_wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, f'a[id="{i+1}"]')))
+        page_num
+        driver.execute_script("arguments[0].scrollIntoView(false);", page_num)
+        page_num.click()
+        time.sleep(random.randint(2,3))
